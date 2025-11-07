@@ -36,15 +36,19 @@ if 'filter_mode' not in st.session_state:
 def run_validation_in_thread(
     entries: List[Dict[str, Any]],
     threshold: float,
-    use_crossref: bool,
-    use_scholar: bool,
-    progress_callback: Optional[Callable[[int, int], None]] = None
+    progress_placeholder = None,
+    status_placeholder = None
 ) -> Dict[str, Any]:
     """
     Run async validation in a separate thread to avoid event loop conflicts.
     """
     result = None
     exception = None
+    progress_queue = []
+
+    def thread_safe_progress(completed: int, total: int):
+        """Queue progress updates to be handled in main thread."""
+        progress_queue.append((completed, total))
 
     def _run():
         nonlocal result, exception
@@ -55,9 +59,8 @@ def run_validation_in_thread(
                 validate_entries(
                     entries,
                     threshold,
-                    use_crossref=use_crossref,
-                    use_scholar=use_scholar,
-                    progress_callback=progress_callback
+                    use_crossref=True,
+                    progress_callback=thread_safe_progress if progress_placeholder else None
                 )
             )
         except Exception as e:
@@ -67,6 +70,17 @@ def run_validation_in_thread(
 
     thread = threading.Thread(target=_run)
     thread.start()
+
+    # Update progress in main thread
+    if progress_placeholder and status_placeholder:
+        while thread.is_alive():
+            if progress_queue:
+                completed, total = progress_queue.pop(0)
+                progress = completed / total if total > 0 else 1.0
+                progress_placeholder.progress(progress)
+                status_placeholder.text(f"Validating: {completed}/{total} entries")
+            thread.join(timeout=0.1)
+
     thread.join()
 
     if exception:
@@ -86,22 +100,11 @@ def format_authors(entry: Dict[str, Any]) -> str:
 
 
 def get_best_match(item: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any], Optional[float]]]:
-    """Get the best matching source for a validation item."""
-    candidates = []
-
+    """Get the CrossRef match for a validation item."""
     crossref_source = item.get("crossref_source")
     if isinstance(crossref_source, dict) and crossref_source:
-        candidates.append(("CrossRef", crossref_source, item.get("crossref_similarity_score")))
-
-    scholar_source = item.get("google_scholar_source")
-    if isinstance(scholar_source, dict) and scholar_source:
-        candidates.append(("Google Scholar", scholar_source, item.get("google_scholar_similarity_score")))
-
-    if not candidates:
-        return None
-
-    # Return the match with highest score
-    return max(candidates, key=lambda x: x[2] if x[2] is not None else 0)
+        return ("CrossRef", crossref_source, item.get("crossref_similarity_score"))
+    return None
 
 
 def export_to_csv(results: Dict[str, Any]) -> str:
@@ -111,8 +114,8 @@ def export_to_csv(results: Dict[str, Any]) -> str:
 
     # Write header
     writer.writerow([
-        "Title", "Authors", "Year", "Status", "Validation Source",
-        "CrossRef Score", "Google Scholar Score", "DOI", "Publisher"
+        "Title", "Authors", "Year", "Status",
+        "CrossRef Score", "DOI", "Publisher"
     ])
 
     # Write data rows
@@ -125,9 +128,7 @@ def export_to_csv(results: Dict[str, Any]) -> str:
             format_authors(entry),
             entry.get("year", ""),
             "VALID" if item.get("is_valid") else "INVALID",
-            item.get("validation_source", ""),
             f"{item.get('crossref_similarity_score', '')}",
-            f"{item.get('google_scholar_similarity_score', '')}",
             entry.get("doi", ""),
             best_match[1].get("publisher", "") if best_match else ""
         ])
@@ -148,26 +149,17 @@ with st.sidebar:
         help="Minimum similarity score to consider a match valid"
     )
 
-    st.subheader("Validation Sources")
-    use_crossref = st.checkbox("Use CrossRef", value=True)
-    use_scholar = st.checkbox("Use Google Scholar", value=True)
-
-    if not use_crossref and not use_scholar:
-        st.error("At least one validation source must be selected")
-
-    with st.expander("Advanced Options"):
-        st.info("Proxy configuration for Google Scholar (if needed)")
-        proxy_host = st.text_input("Proxy Host", placeholder="Optional")
-        proxy_port = st.number_input("Proxy Port", min_value=0, max_value=65535, value=0)
+    st.subheader("Validation Source")
+    st.info("✅ Using CrossRef for reliable bibliography validation")
 
     st.divider()
     st.caption("DTCC Bib Processor v1.0")
-    st.caption("Validates bibliography entries against CrossRef and Google Scholar")
+    st.caption("Validates bibliography entries against CrossRef")
 
 
 # Main content area
 st.title("📚 DTCC Bib Processor")
-st.write("Upload a .bib file to validate bibliography entries against academic databases.")
+st.write("Upload a .bib file to validate bibliography entries against CrossRef database.")
 
 # File upload section
 uploaded_file = st.file_uploader(
@@ -205,7 +197,7 @@ if uploaded_file is not None:
     # Validation section
     st.divider()
 
-    if st.button("🔍 Validate Entries", type="primary", disabled=(not use_crossref and not use_scholar)):
+    if st.button("🔍 Validate Entries", type="primary"):
         # Clear previous results
         st.session_state.validation_results = None
         st.session_state.filter_mode = "all"
@@ -214,21 +206,14 @@ if uploaded_file is not None:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Define progress callback
-        def update_progress(completed: int, total: int):
-            progress = completed / total if total > 0 else 1.0
-            progress_bar.progress(progress)
-            status_text.text(f"Validating: {completed}/{total} entries")
-
         try:
-            # Run validation
+            # Run validation with thread-safe progress updates
             with st.spinner("Starting validation..."):
                 results = run_validation_in_thread(
                     st.session_state.parsed_entries,
                     similarity_threshold,
-                    use_crossref,
-                    use_scholar,
-                    update_progress
+                    progress_bar,
+                    status_text
                 )
 
             # Store results
@@ -330,20 +315,17 @@ if uploaded_file is not None:
                         st.write("**DOI:**", entry.get("doi"))
                 with col2:
                     st.write("**Status:**", "✅ VALID" if is_valid else "❌ INVALID")
-                    if item.get("validation_source"):
-                        st.write("**Validated by:**", item.get("validation_source"))
+                    st.write("**Source:**", "CrossRef")
 
-                # Similarity scores
+                # Similarity score
                 if item.get("crossref_similarity_score") is not None:
                     st.progress(item["crossref_similarity_score"]/100, text=f"CrossRef similarity: {item['crossref_similarity_score']:.1f}%")
-                if item.get("google_scholar_similarity_score") is not None:
-                    st.progress(item["google_scholar_similarity_score"]/100, text=f"Google Scholar similarity: {item['google_scholar_similarity_score']:.1f}%")
 
                 # Best match details
                 best_match = get_best_match(item)
                 if best_match:
                     source_name, match_data, score = best_match
-                    st.write(f"**Best match from {source_name}:**")
+                    st.write("**CrossRef Match Details:**")
 
                     match_col1, match_col2 = st.columns(2)
                     with match_col1:
@@ -365,10 +347,6 @@ if uploaded_file is not None:
                 if item.get("error_message"):
                     st.error(f"Error: {item['error_message']}")
 
-                # Google Scholar error if any
-                if item.get("google_scholar_error"):
-                    st.warning(f"Google Scholar: {item['google_scholar_error']}")
-
                 # Raw BibTeX entry
                 if entry.get("raw_entry"):
                     st.code(entry["raw_entry"], language="bibtex")
@@ -382,12 +360,12 @@ else:
         This tool validates bibliography entries by:
 
         1. **Parsing** your .bib file to extract individual entries
-        2. **Searching** CrossRef and/or Google Scholar for matching publications
+        2. **Searching** CrossRef database for matching publications
         3. **Comparing** titles, authors, and metadata using fuzzy matching
         4. **Reporting** validation status with similarity scores
 
         **Tips:**
         - Adjust the similarity threshold for stricter or more lenient matching
-        - Use both CrossRef and Google Scholar for best coverage
+        - CrossRef provides excellent coverage for academic papers with DOIs
         - Export results as JSON for detailed analysis or CSV for spreadsheet review
         """)

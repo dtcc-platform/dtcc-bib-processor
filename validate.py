@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate bibliography references locally using CrossRef and Google Scholar."""
+"""Validate bibliography references locally using CrossRef."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate bibliography entries directly against CrossRef and Google Scholar",
+        description="Validate bibliography entries directly against CrossRef",
     )
     parser.add_argument(
         "bibfile",
@@ -27,16 +27,6 @@ def parse_args() -> argparse.Namespace:
         help="Similarity threshold for fuzzy matching (default: 75.0)",
     )
     parser.add_argument(
-        "--crossref-only",
-        action="store_true",
-        help="Disable Google Scholar fallback and use CrossRef only",
-    )
-    parser.add_argument(
-        "--scholar-only",
-        action="store_true",
-        help="Skip CrossRef queries and rely on Google Scholar only",
-    )
-    parser.add_argument(
         "--raw",
         action="store_true",
         help="Print raw JSON response instead of the human-readable summary",
@@ -47,13 +37,8 @@ def parse_args() -> argparse.Namespace:
 def validate_bib_file(
     bib_path: Path,
     threshold: float,
-    use_crossref: bool,
-    use_scholar: bool,
 ) -> Dict[str, Any]:
     from validator_core import parse_bib_content, validate_entries  # Local import for friendlier CLI errors
-
-    if not use_crossref and not use_scholar:
-        raise ValueError("At least one validation source must be enabled")
 
     if not bib_path.exists():
         raise FileNotFoundError(f"No such file: {bib_path}")
@@ -108,8 +93,7 @@ def validate_bib_file(
             validate_entries(
                 entries,
                 threshold,
-                use_crossref=use_crossref,
-                use_scholar=use_scholar,
+                use_crossref=True,
                 progress_callback=progress_callback,
             )
         )
@@ -129,27 +113,10 @@ def _format_authors(entry: Dict[str, Any]) -> str:
 
 
 def _select_best_match(item: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any], Optional[float]]]:
-    def score_value(score: Optional[float]) -> float:
-        if isinstance(score, (int, float)):
-            return float(score)
-        return float("-inf")
-
-    candidates: List[Tuple[str, Dict[str, Any], Optional[float]]] = []
-
     crossref_source = item.get("crossref_source")
     if isinstance(crossref_source, dict) and crossref_source:
-        candidates.append(("CrossRef", crossref_source, item.get("crossref_similarity_score")))
-
-    scholar_source = item.get("google_scholar_source")
-    if isinstance(scholar_source, dict) and scholar_source:
-        candidates.append(("Google Scholar", scholar_source, item.get("google_scholar_similarity_score")))
-
-    best_match: Optional[Tuple[str, Dict[str, Any], Optional[float]]] = None
-    for candidate in candidates:
-        if best_match is None or score_value(candidate[2]) > score_value(best_match[2]):
-            best_match = candidate
-
-    return best_match
+        return ("CrossRef", crossref_source, item.get("crossref_similarity_score"))
+    return None
 
 
 def _format_match_details(match: Dict[str, Any]) -> List[str]:
@@ -193,7 +160,7 @@ def _format_match_details(match: Dict[str, Any]) -> List[str]:
     return details or ["<no metadata>"]
 
 
-def print_summary(result: Dict[str, Any], use_crossref: bool, use_scholar: bool) -> None:
+def print_summary(result: Dict[str, Any]) -> None:
     print(f"Total entries: {result.get('total_entries')}")
     print(f"Valid entries: {result.get('valid_entries')}")
     print(f"Invalid entries: {result.get('invalid_entries')}")
@@ -201,13 +168,7 @@ def print_summary(result: Dict[str, Any], use_crossref: bool, use_scholar: bool)
     generated_at = result.get("generated_at")
     if generated_at:
         print(f"Generated at: {generated_at}")
-    sources = []
-    if use_crossref:
-        sources.append("CrossRef")
-    if use_scholar:
-        sources.append("Google Scholar")
-    if sources:
-        print(f"Sources: {', '.join(sources)}")
+    print("Source: CrossRef")
     print()
 
     results: List[Dict[str, Any]] = result.get("results", [])
@@ -228,11 +189,6 @@ def print_summary(result: Dict[str, Any], use_crossref: bool, use_scholar: bool)
             print(f"    Validation source: {validation_source}")
         if item.get("crossref_similarity_score") is not None:
             print(f"    CrossRef similarity: {item['crossref_similarity_score']:.1f}%")
-        if item.get("google_scholar_similarity_score") is not None:
-            print(f"    Google Scholar similarity: {item['google_scholar_similarity_score']:.1f}%")
-        scholar_error = item.get("google_scholar_error")
-        if scholar_error:
-            print(f"    Google Scholar error: {scholar_error}")
         best_match = _select_best_match(item)
         if best_match:
             source_name, match_data, match_score = best_match
@@ -277,15 +233,9 @@ def print_summary(result: Dict[str, Any], use_crossref: bool, use_scholar: bool)
 
 def main() -> None:
     args = parse_args()
-    if args.crossref_only and args.scholar_only:
-        print("Error: --crossref-only and --scholar-only cannot be used together")
-        raise SystemExit(1)
-
-    use_crossref = not args.scholar_only
-    use_scholar = not args.crossref_only
 
     try:
-        results = validate_bib_file(args.bibfile, args.threshold, use_crossref, use_scholar)
+        results = validate_bib_file(args.bibfile, args.threshold)
     except Exception as exc:  # pragma: no cover - CLI feedback
         print(f"Error: {exc}")
         raise SystemExit(1)
@@ -293,7 +243,7 @@ def main() -> None:
     if args.raw:
         print(json.dumps(results, indent=2))
     else:
-        print_summary(results, use_crossref, use_scholar)
+        print_summary(results)
 
 
 if __name__ == "__main__":

@@ -19,8 +19,7 @@ The app will open in your browser at http://localhost:8501
 
 ### Configuration (Sidebar)
 - **Similarity Threshold**: Adjust matching strictness (60-95%)
-- **Validation Sources**: Toggle CrossRef and/or Google Scholar
-- **Advanced Options**: Configure proxy settings if needed for Google Scholar
+- **Validation Source**: Uses CrossRef for reliable validation
 
 ### Main Interface
 
@@ -37,8 +36,8 @@ The app will open in your browser at http://localhost:8501
 Each validated entry shows:
 - Validation status (valid/invalid)
 - Authors, year, DOI
-- Similarity scores from each source
-- Best match details from CrossRef/Google Scholar
+- CrossRef similarity score
+- Match details from CrossRef
 - Raw BibTeX entry
 
 ## Sample File
@@ -49,6 +48,6 @@ A sample.bib file is included for testing with 5 entries:
 
 ## Troubleshooting
 
-- **Google Scholar rate limiting**: Consider using fewer entries or adding proxy configuration
 - **Missing dependencies**: Run `pip install -r requirements.txt`
 - **File parsing errors**: Ensure .bib file is properly formatted BibTeX
+- **Validation failures**: Papers without DOIs may not be found in CrossRef
