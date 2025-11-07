@@ -20,7 +20,7 @@ except ImportError:
 
 st.set_page_config(
     page_title="DTCC Bib Processor",
-    page_icon="📚",
+    page_icon="favicon.ico",  # Uses the custom favicon
     layout="wide"
 )
 

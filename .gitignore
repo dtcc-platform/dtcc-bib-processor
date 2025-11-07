@@ -70,7 +70,8 @@ cython_debug/
 
 # Streamlit
 .streamlit/secrets.toml
-.streamlit/config.toml
+# Keep config.toml for theme and settings
+!.streamlit/config.toml
 *.log
 
 # IDEs and Editors
@@ -274,3 +275,10 @@ test*.bib
 local*.bib
 private*.bib
 !sample.bib
+
+# Keep favicon and icon files
+!favicon.ico
+!favicon-*.png
+!apple-touch-icon.png
+!android-chrome-*.png
+!site.webmanifest
