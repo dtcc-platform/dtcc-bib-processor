@@ -272,6 +272,63 @@ if uploaded_file is not None:
                 mime="text/csv"
             )
 
+        # Summary sections for valid and invalid entries
+        st.divider()
+
+        # Create tabs for valid and invalid summaries
+        tab1, tab2 = st.tabs(["✅ Valid Entries", "❌ Invalid Entries"])
+
+        with tab1:
+            valid_entries = [e for e in results.get("results", []) if e.get("is_valid")]
+            if valid_entries:
+                st.write(f"Found **{len(valid_entries)}** valid entries with high-confidence CrossRef matches.")
+                for item in valid_entries:
+                    entry = item.get("entry", {})
+                    with st.container():
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.success(f"**{entry.get('title', 'Untitled')[:100]}**")
+                            st.caption(f"Authors: {format_authors(entry)} | Year: {entry.get('year', 'N/A')}")
+                        with col2:
+                            if item.get("crossref_similarity_score") is not None:
+                                st.metric("Match", f"{item['crossref_similarity_score']:.1f}%")
+            else:
+                st.info("No valid entries found.")
+
+        with tab2:
+            invalid_entries = [e for e in results.get("results", []) if not e.get("is_valid")]
+            if invalid_entries:
+                st.write(f"Found **{len(invalid_entries)}** entries below the similarity threshold.")
+
+                for item in invalid_entries:
+                    entry = item.get("entry", {})
+                    best_match = get_best_match(item)
+
+                    with st.container():
+                        # Entry title and score
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.error(f"**{entry.get('title', 'Untitled')[:100]}**")
+                            st.caption(f"Authors: {format_authors(entry)}")
+                        with col2:
+                            if item.get("crossref_similarity_score") is not None:
+                                st.metric("Score", f"{item['crossref_similarity_score']:.1f}%")
+
+                        # Best match from CrossRef
+                        if best_match:
+                            source_name, match_data, score = best_match
+                            st.info(f"**Closest CrossRef Match:**  \n"
+                                   f"*{match_data.get('title', 'No title')}*  \n"
+                                   f"Authors: {', '.join(match_data.get('authors', [])) if match_data.get('authors') else 'N/A'}  \n"
+                                   f"Journal: {match_data.get('journal', 'N/A')} | Year: {match_data.get('published_date', 'N/A')[:4] if match_data.get('published_date') else 'N/A'}  \n"
+                                   f"DOI: {match_data.get('doi', 'N/A')}")
+                        else:
+                            st.warning("No CrossRef match found")
+
+                        st.divider()
+            else:
+                st.info("All entries were successfully validated.")
+
         # Filter controls
         st.divider()
         filter_col1, filter_col2 = st.columns([1, 3])
@@ -284,6 +341,7 @@ if uploaded_file is not None:
 
         # Entry list
         st.divider()
+        st.subheader("Detailed Results")
         entries_to_show = results.get("results", [])
 
         # Apply filter
@@ -298,6 +356,7 @@ if uploaded_file is not None:
         for idx, item in enumerate(entries_to_show, 1):
             entry = item.get("entry", {})
             is_valid = item.get("is_valid")
+            best_match = get_best_match(item)
 
             # Create expander with status icon
             status_icon = "✅" if is_valid else "❌"
@@ -305,7 +364,12 @@ if uploaded_file is not None:
             if len(title) > 80:
                 title = title[:77] + "..."
 
-            with st.expander(f"{status_icon} [{idx}] {title}"):
+            # Add similarity score to the expander title if available
+            expander_title = f"{status_icon} [{idx}] {title}"
+            if item.get("crossref_similarity_score") is not None:
+                expander_title += f" (Score: {item['crossref_similarity_score']:.1f}%)"
+
+            with st.expander(expander_title):
                 # Entry metadata
                 col1, col2 = st.columns(2)
                 with col1:
