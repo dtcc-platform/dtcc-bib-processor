@@ -1,0 +1,17 @@
+# Core dependencies
+streamlit==1.39.0
+aiohttp==3.10.10
+bibtexparser==1.4.2
+rapidfuzz==3.10.1
+scholarly==1.7.11
+
+# HTTP and networking
+certifi==2024.8.30
+httpx==0.27.2
+
+# Utilities
+packaging==24.1
+tqdm==4.67.0
+
+# Optional but recommended for better proxy support
+# python-socks[asyncio]==2.5.0
