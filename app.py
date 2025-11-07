@@ -162,13 +162,21 @@ st.title("📚 DTCC Bib Processor")
 st.write("Upload a .bib file to validate bibliography entries against CrossRef database.")
 
 # File upload section
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB in bytes
+
 uploaded_file = st.file_uploader(
     "Choose a .bib file",
     type=["bib"],
-    help="Select a BibTeX file to validate"
+    help="Select a BibTeX file to validate (max 5 MB)"
 )
 
 if uploaded_file is not None:
+    # Check file size
+    file_size = uploaded_file.size
+    if file_size > MAX_FILE_SIZE:
+        st.error(f"❌ File size ({file_size / (1024*1024):.2f} MB) exceeds the maximum allowed size of 5 MB. Please upload a smaller file.")
+        st.stop()
+
     # Read and parse file content
     content = uploaded_file.read().decode("utf-8")
 
@@ -188,7 +196,14 @@ if uploaded_file is not None:
     with col2:
         st.metric("Total Entries", len(st.session_state.parsed_entries))
     with col3:
-        st.metric("File Size", f"{len(content):,} bytes")
+        # Display file size in appropriate units
+        if file_size < 1024:
+            size_str = f"{file_size} bytes"
+        elif file_size < 1024 * 1024:
+            size_str = f"{file_size / 1024:.2f} KB"
+        else:
+            size_str = f"{file_size / (1024 * 1024):.2f} MB"
+        st.metric("File Size", size_str)
 
     # Preview section
     with st.expander("File Preview", expanded=False):
@@ -429,6 +444,7 @@ else:
         4. **Reporting** validation status with similarity scores
 
         **Tips:**
+        - Maximum file size: 5 MB
         - Adjust the similarity threshold for stricter or more lenient matching
         - CrossRef provides excellent coverage for academic papers with DOIs
         - Export results as JSON for detailed analysis or CSV for spreadsheet review
